@@ -1,0 +1,27 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    description: "Olist CSV files loaded as-is by pipeline/extract_load.py (all columns TEXT)."
+    tables:
+      - name: customers
+        description: "One row per customer_id (a customer gets a new customer_id for every order)."
+      - name: orders
+        description: "One row per order, with status and lifecycle timestamps."
+      - name: order_items
+        description: "One row per item in an order."
+      - name: order_payments
+        description: "One row per payment; an order can be paid in several parts."
+      - name: order_reviews
+        description: "Customer reviews. Known issue: 814 review_ids repeat across orders."
+      - name: products
+        description: "Product catalogue with Portuguese category names."
+      - name: sellers
+        description: "One row per seller."
+      - name: category_translation
+        description: "Portuguese to English category names (2 categories are missing)."
+      - name: geolocation
+        description: "Zip-code prefix coordinates (many rows per prefix)."
+      - name: load_audit
+        description: "One row per table load written by the extract & load step."

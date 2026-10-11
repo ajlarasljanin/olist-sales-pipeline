@@ -1,0 +1,24 @@
+name: olist
+version: "1.0.0"
+profile: olist
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Medallion architecture (one folder = one schema)
+#   models/bronze  source definitions only; tables are loaded by pipeline/extract_load.py
+#   models/silver  cleaned, typed, de-duplicated data (views)
+#   models/gold    star schema for Power BI (tables)
+# Technical tables (load audit) live in the separate `meta` schema.
+# macros/generate_schema_name.sql stops any model from landing outside silver/gold.
+models:
+  olist:
+    silver:
+      +schema: silver
+      +materialized: view
+    gold:
+      +schema: gold
+      +materialized: table

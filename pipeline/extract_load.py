@@ -1,14 +1,14 @@
-"""Extract the Olist CSV files and load them into PostgreSQL (schema `raw`).
+"""Extract the Olist CSV files and load them into PostgreSQL (bronze layer).
 
 Design choices
 --------------
-* The raw layer is a faithful copy of the source: every column is TEXT, nothing is
+* The bronze layer is a faithful copy of the source: every column is TEXT, nothing is
   cleaned or cast here. Typing and cleaning happen later in dbt, where they are
   versioned and tested.
 * Each table is a full refresh inside one transaction: drop, create, COPY, check.
   If any check fails the transaction rolls back and the previous version of the
   table stays untouched.
-* Every table load writes a row to `raw.load_audit` (also when it fails), so you
+* Every table load writes a row to `meta.load_audit` (also when it fails), so you
   can always see what was loaded, when, and with which data-quality warnings.
 
 Usage
@@ -31,7 +31,7 @@ from pathlib import Path
 import psycopg2
 from psycopg2 import sql
 
-from pipeline.config import LOG_DIR, RAW_DATA_DIR, RAW_SCHEMA, SOURCES, SourceTable, db_settings
+from pipeline.config import BRONZE_SCHEMA, LOG_DIR, META_SCHEMA, RAW_DATA_DIR, SOURCES, SourceTable, db_settings
 
 log = logging.getLogger("extract_load")
 
@@ -98,9 +98,11 @@ def check_file(source: SourceTable, data_dir: Path) -> tuple[Path, int]:
 # --------------------------------------------------------------------------- #
 # Database helpers
 # --------------------------------------------------------------------------- #
-def ensure_audit_table(conn) -> None:
+def ensure_schemas(conn) -> None:
+    """Create the bronze (data) and meta (audit) schemas if they do not exist yet."""
     with conn.cursor() as cur:
-        cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(RAW_SCHEMA)))
+        for schema in (BRONZE_SCHEMA, META_SCHEMA):
+            cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
         cur.execute(sql.SQL("""
             CREATE TABLE IF NOT EXISTS {}.load_audit (
                 run_id          uuid        NOT NULL,
@@ -114,7 +116,7 @@ def ensure_audit_table(conn) -> None:
                 duration_sec    numeric(10, 2),
                 loaded_at       timestamptz NOT NULL DEFAULT now()
             )
-        """).format(sql.Identifier(RAW_SCHEMA)))
+        """).format(sql.Identifier(META_SCHEMA)))
     conn.commit()
 
 
@@ -126,7 +128,7 @@ def write_audit(conn, run_id: str, r: LoadResult) -> None:
                     (run_id, table_name, source_file, status, rows_in_file,
                      rows_loaded, duplicate_keys, message, duration_sec)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """).format(sql.Identifier(RAW_SCHEMA)),
+            """).format(sql.Identifier(META_SCHEMA)),
             (run_id, r.table, r.source_file, r.status, r.rows_in_file,
              r.rows_loaded, r.duplicate_keys, r.message[:1000], round(r.seconds, 2)),
         )
@@ -135,7 +137,7 @@ def write_audit(conn, run_id: str, r: LoadResult) -> None:
 
 def load_table(conn, source: SourceTable, path: Path, rows_in_file: int, result: LoadResult) -> None:
     """Drop + create + COPY + check, all in one transaction."""
-    table = sql.Identifier(RAW_SCHEMA, source.name)
+    table = sql.Identifier(BRONZE_SCHEMA, source.name)
     cols = [sql.Identifier(c) for c in source.columns]
     col_defs = sql.SQL(", ").join(sql.SQL("{} text").format(c) for c in cols)
 
@@ -209,9 +211,9 @@ def run(table_names: list[str] | None = None, data_dir: Path = RAW_DATA_DIR) -> 
     conn.set_client_encoding("UTF8")
     results: list[LoadResult] = []
     try:
-        ensure_audit_table(conn)
+        ensure_schemas(conn)
         for source in sources:
-            result = LoadResult(table=f"{RAW_SCHEMA}.{source.name}", source_file=source.file)
+            result = LoadResult(table=f"{BRONZE_SCHEMA}.{source.name}", source_file=source.file)
             started = time.perf_counter()
             try:
                 path, rows_in_file = check_file(source, data_dir)
@@ -257,7 +259,7 @@ def setup_logging() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Load Olist CSV files into PostgreSQL (raw schema).")
+    parser = argparse.ArgumentParser(description="Load Olist CSV files into PostgreSQL (bronze schema).")
     parser.add_argument("--tables", nargs="+", help="Only load these tables (e.g. orders customers)")
     parser.add_argument("--data-dir", type=Path, default=RAW_DATA_DIR, help="Folder with the CSV files")
     args = parser.parse_args()
