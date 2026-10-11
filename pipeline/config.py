@@ -13,7 +13,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 RAW_DATA_DIR = Path(os.getenv("RAW_DATA_DIR", PROJECT_ROOT / "data" / "raw"))
 LOG_DIR = PROJECT_ROOT / "logs"
-RAW_SCHEMA = "raw"
+BRONZE_SCHEMA = "bronze"  # medallion: bronze (source copies) -> silver (clean) -> gold (star schema)
+META_SCHEMA = "meta"      # technical tables (load audit), kept out of the data layers
 
 
 def db_settings() -> dict:
@@ -35,9 +36,9 @@ def db_settings() -> dict:
 
 @dataclass(frozen=True)
 class SourceTable:
-    """One CSV file and the raw table it lands in."""
+    """One CSV file and the bronze table it lands in."""
 
-    name: str                 # target table: raw.<name>
+    name: str                 # target table: bronze.<name>
     file: str                 # file name inside RAW_DATA_DIR
     columns: list[str]        # expected header, in order
     key: list[str] = field(default_factory=list)  # natural key, used for quality checks
@@ -73,7 +74,7 @@ SOURCES: list[SourceTable] = [
         "order_reviews", "olist_order_reviews_dataset.csv",
         ["review_id", "order_id", "review_score", "review_comment_title",
          "review_comment_message", "review_creation_date", "review_answer_timestamp"],
-        key=["review_id"],  # known issue: some review_ids repeat across orders
+        key=["review_id", "order_id"],  # one review can cover several orders, see silver.order_reviews
     ),
     SourceTable(
         "products", "olist_products_dataset.csv",

@@ -1,0 +1,14 @@
+# Connection details come from environment variables (.env), never from this file.
+# Run dbt through `python -m pipeline.run_dbt ...` so .env is loaded first.
+olist:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('PGHOST') }}"
+      port: "{{ env_var('PGPORT', '5432') | int }}"
+      user: "{{ env_var('PGUSER') }}"
+      password: "{{ env_var('PGPASSWORD') }}"
+      dbname: "{{ env_var('PGDATABASE') }}"
+      schema: meta  # only used by dbt internals; models are forced into silver/gold
+      threads: 4
