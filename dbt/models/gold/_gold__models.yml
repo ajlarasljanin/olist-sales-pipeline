@@ -1,0 +1,120 @@
+version: 2
+
+# Gold layer: star schema for Power BI. Only valid rows from silver (is_valid = true).
+# Revenue = sum of item prices of orders where is_revenue_order is true
+# (not canceled, not unavailable).
+
+models:
+  - name: fct_orders
+    description: "One row per valid order: money, basket, delivery and review metrics."
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_key
+      - name: purchase_date
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date
+      - name: delivered_date
+        description: "Null until the order is delivered."
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date
+      - name: estimated_date
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date
+      - name: is_revenue_order
+        description: "True when the order counts for revenue (not canceled or unavailable)."
+        tests: [not_null]
+      - name: items_amount
+        description: "Sum of item prices. Revenue measure."
+      - name: paid_amount
+        description: "What the customer actually paid, including installment interest."
+      - name: delay_days
+        description: "Delivered date minus estimated date. Negative = early, positive = late."
+      - name: review_score
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+
+  - name: fct_order_items
+    description: "One row per item of a valid order. For product, category and seller analysis."
+    columns:
+      - name: order_item_key
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+      - name: seller_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sellers')
+                field: seller_id
+      - name: customer_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_key
+      - name: purchase_date
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date
+
+  - name: dim_customers
+    description: "One row per real customer (customer_unique_id), located by their latest order."
+    columns:
+      - name: customer_key
+        tests: [unique, not_null]
+      - name: order_count
+        tests: [not_null]
+
+  - name: dim_products
+    description: "One row per product with an English, report-ready category name."
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: category
+        tests: [not_null]
+
+  - name: dim_sellers
+    description: "One row per seller with coordinates for map visuals."
+    columns:
+      - name: seller_id
+        tests: [unique, not_null]
+
+  - name: dim_date
+    description: "Calendar table. Mark it as the date table in Power BI."
+    columns:
+      - name: date
+        tests: [unique, not_null]
