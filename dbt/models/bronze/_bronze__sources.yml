@@ -17,7 +17,7 @@ sources:
       - name: order_payments
         description: "One row per payment; an order can be paid in several parts."
       - name: order_reviews
-        description: "Customer reviews. Known issue: 814 review_ids repeat across orders."
+        description: "Customer reviews. One review_id can cover several orders (same review, 789 cases), so the key is review_id + order_id."
       - name: products
         description: "Product catalogue with Portuguese category names."
       - name: sellers

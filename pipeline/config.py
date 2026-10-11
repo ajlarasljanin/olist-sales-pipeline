@@ -74,7 +74,7 @@ SOURCES: list[SourceTable] = [
         "order_reviews", "olist_order_reviews_dataset.csv",
         ["review_id", "order_id", "review_score", "review_comment_title",
          "review_comment_message", "review_creation_date", "review_answer_timestamp"],
-        key=["review_id"],  # known issue: some review_ids repeat across orders
+        key=["review_id", "order_id"],  # one review can cover several orders, see silver.order_reviews
     ),
     SourceTable(
         "products", "olist_products_dataset.csv",

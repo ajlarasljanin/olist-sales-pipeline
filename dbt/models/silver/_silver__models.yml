@@ -1,0 +1,171 @@
+version: 2
+
+# Silver layer: one model per source table, cleaned and typed.
+# Rule: rows are never silently dropped. Bad values are fixed (documented in the
+# model) or flagged with a dq_ column so gold and Power BI can decide.
+
+models:
+  - name: customers
+    description: "One row per customer_id. customer_unique_id identifies the real person across orders."
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: customer_unique_id
+        tests: [not_null]
+      - name: zip_code_prefix
+        tests: [not_null]
+      - name: state
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+
+  - name: sellers
+    description: "One row per seller. City cleaned from free text (state suffixes, abbreviations, junk values removed)."
+    columns:
+      - name: seller_id
+        tests: [unique, not_null]
+      - name: state
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+
+  - name: orders
+    description: >
+      One row per order with typed timestamps and data-quality flags. The source is a
+      snapshot, so open orders (shipped, invoiced...) without a delivery date are normal.
+      Orders with is_valid = false stay here for auditing but are excluded from gold.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: customer_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('customers')
+                field: customer_id
+      - name: order_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: [created, approved, invoiced, processing, shipped, delivered, canceled, unavailable]
+      - name: purchased_at
+        tests: [not_null]
+      - name: dq_delivered_without_date
+        description: "Status is delivered but there is no delivery date (8 orders). Makes the order invalid."
+      - name: dq_shipped_before_purchase
+        description: "Handed to the carrier before the purchase date (166 orders). Makes the order invalid."
+      - name: dq_canceled_after_delivery
+        description: "Delivered, then canceled, e.g. a return (6 orders). Informational, the order stays valid."
+      - name: is_valid
+        description: "False when the order has a contradiction that makes it unusable for analysis."
+        tests: [not_null]
+      - name: invalid_reason
+        tests:
+          - accepted_values:
+              arguments:
+                values: [shipped_before_purchase, delivered_without_date]
+
+  - name: order_items
+    description: "One row per item in an order."
+    columns:
+      - name: order_item_key
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('orders')
+                field: order_id
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('products')
+                field: product_id
+      - name: seller_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('sellers')
+                field: seller_id
+      - name: price
+        tests: [not_null]
+      - name: is_valid
+        description: "Inherited from the order: false when the order is invalid."
+        tests: [not_null]
+
+  - name: order_payments
+    description: "One row per payment. Installments of 0 are corrected to 1."
+    columns:
+      - name: payment_key
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('orders')
+                field: order_id
+      - name: payment_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: [credit_card, boleto, voucher, debit_card, not_defined]
+      - name: is_valid
+        description: "Inherited from the order: false when the order is invalid."
+        tests: [not_null]
+
+  - name: order_reviews
+    description: >
+      One row per (review_id, order_id). A review_id can belong to several orders
+      when the customer reviewed orders bought together; these rows are kept on purpose.
+    columns:
+      - name: review_order_key
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('orders')
+                field: order_id
+      - name: review_score
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+      - name: is_valid
+        description: "Inherited from the order: false when the order is invalid."
+        tests: [not_null]
+
+  - name: products
+    description: "One row per product. Source typos fixed (lenght -> length); weight 0 g set to null."
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: category_name
+        description: "Portuguese category; null for 610 products without a category."
+        tests:
+          - relationships:
+              arguments:
+                to: ref('category_translation')
+                field: category_name
+
+  - name: category_translation
+    description: "Portuguese -> English category names, including 2 categories missing from the source file."
+    columns:
+      - name: category_name
+        tests: [unique, not_null]
+      - name: category_name_english
+        tests: [not_null]
+
+  - name: geolocation
+    description: "One row per zip-code prefix: average coordinates of the points inside Brazil."
+    columns:
+      - name: zip_code_prefix
+        tests: [unique, not_null]
